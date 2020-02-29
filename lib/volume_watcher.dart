@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
+import 'package:rxdart/rxdart.dart';
 
 class VolumeWatcher extends StatefulWidget {
   final ValueChanged<num> onVolumeChangeListener;
@@ -12,9 +13,24 @@ class VolumeWatcher extends StatefulWidget {
   static const EventChannel eventChannel =
       const EventChannel('volume_watcher_event');
 
+  static StreamSubscription _subscription;
+  static final _volumeChangedSubject = BehaviorSubject<int>();
+  static Stream<int> get volumeChangedStream => _volumeChangedSubject.stream;
+
   @override
   State<StatefulWidget> createState() {
+    if (_subscription == null) {
+      _subscription =
+          VolumeWatcher.eventChannel.receiveBroadcastStream().listen((vol) {
+        _volumeChangedSubject.add(vol);
+      }, onError: _onError);
+    }
+
     return VolumeState();
+  }
+
+  void _onError(Object error) {
+    print('Volume status: unknown.' + error.toString());
   }
 
   /*
@@ -39,7 +55,7 @@ class VolumeWatcher extends StatefulWidget {
    */
   static Future<bool> setVolume(double volume) async {
     final bool success =
-        await methodChannel.invokeMethod('setVolume', {'volume':volume});
+        await methodChannel.invokeMethod('setVolume', {'volume': volume});
     return success;
   }
 }
@@ -51,33 +67,17 @@ class VolumeState extends State<VolumeWatcher> {
   @override
   void initState() {
     super.initState();
-    if (_subscription == null) {
-      //event channel 注册
-      _subscription = VolumeWatcher.eventChannel
-          .receiveBroadcastStream("init")
-          .listen(_onEvent, onError: _onError);
-    }
-  }
 
-  /*
-   * event channel回调
-   */
-  void _onEvent(Object event) {
-    if (mounted) {
-      if (widget.onVolumeChangeListener != null) {
-        widget.onVolumeChangeListener(event);
+    _subscription = VolumeWatcher.volumeChangedStream.listen((val) {
+      if (mounted) {
+        if (widget.onVolumeChangeListener != null) {
+          widget.onVolumeChangeListener(val);
+        }
+        setState(() {
+          currentVolume = val;
+        });
       }
-      setState(() {
-        currentVolume = event;
-      });
-    }
-  }
-
-  /*
-   * event channel回调失败
-   */
-  void _onError(Object error) {
-    print('Battery status: unknown.' + error.toString());
+    });
   }
 
   @override
